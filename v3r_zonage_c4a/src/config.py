@@ -51,6 +51,35 @@ CITY_CENTER: Final[tuple[float, float]] = (46.3432, -72.5477)
 CKAN_BASE_URL: Final[str] = "https://www.donneesquebec.ca/recherche/api/3/action"
 CKAN_ORGANIZATION: Final[str] = "ville-de-trois-rivieres"
 
+# Jeux de donnees officiels, epingles par leur slug CKAN.
+#
+# Le slug est la reference la plus stable : contrairement aux URL de
+# ressources (qui portent des UUID regeneres a chaque remplacement de
+# fichier), il ne change pas quand la Ville republie un millesime. Le
+# fetcher interroge `package_show?id=<slug>` en PREMIER, avant toute
+# recherche par mots-cles — c'est ce qui empeche de retomber sur un jeu
+# de donnees sans rapport (ex: "avis-grands-travaux-v3r").
+ZONAGE_DATASET_IDS: Final[tuple[str, ...]] = (
+    "zonage-v3r",              # https://www.donneesquebec.ca/recherche/dataset/zonage-v3r
+)
+LOTS_DATASET_IDS: Final[tuple[str, ...]] = (
+    "matrice-graphique-v3r",
+    "role-evaluation-fonciere-v3r",
+    "cadastre-v3r",
+)
+ADRESSES_DATASET_IDS: Final[tuple[str, ...]] = (
+    "adresses-v3r",
+    "points-adresses-v3r",
+)
+
+# URL directes, utilisees uniquement si l'API CKAN est injoignable.
+# Elles contiennent des UUID de ressource : si la Ville republie la couche,
+# ces liens peuvent mourir — d'ou la priorite donnee au slug ci-dessus.
+ZONAGE_FALLBACK_URLS: Final[tuple[str, ...]] = (
+    "https://www.donneesquebec.ca/recherche/dataset/81cfd131-73ec-43ad-9d6b-72f127c45f51"
+    "/resource/cc9a0110-6ce5-4b00-ace9-603dda3c2acc/download/plan_zonage.geojson",
+)
+
 HTTP_TIMEOUT: Final[int] = 120
 HTTP_RETRIES: Final[int] = 4
 HTTP_BACKOFF_SECONDS: Final[float] = 2.0

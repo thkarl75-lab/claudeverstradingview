@@ -30,14 +30,25 @@ from typing import Any, Iterable, Sequence
 import requests
 
 from .config import (
+    ADRESSES_DATASET_IDS,
     CACHE_MANIFEST,
+    CIVIC_NUMBER_COLUMNS,
     CKAN_BASE_URL,
     CKAN_ORGANIZATION,
     DATA_DIR,
+    FULL_ADDRESS_COLUMNS,
     HTTP_BACKOFF_SECONDS,
     HTTP_RETRIES,
     HTTP_TIMEOUT,
+    LOT_COLUMNS,
+    LOTS_DATASET_IDS,
+    MATRICULE_COLUMNS,
+    STREET_COLUMNS,
+    USAGE_COLUMNS,
     USER_AGENT,
+    ZONAGE_DATASET_IDS,
+    ZONAGE_FALLBACK_URLS,
+    ZONE_ID_COLUMNS,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -47,7 +58,13 @@ VECTOR_EXTENSIONS: tuple[str, ...] = (".geojson", ".json", ".shp", ".gpkg", ".gm
 
 # Ordre de preference des formats CKAN (le GeoJSON evite les soucis
 # d'encodage et de fichiers .prj absents des shapefiles).
-FORMAT_PRIORITY: tuple[str, ...] = ("geojson", "json", "shp", "gpkg", "zip")
+#
+# `json` figure en DERNIER et non plus en deuxieme : sur Donnees Quebec,
+# beaucoup de jeux non geospatiaux (avis, horaires, listes) sont publies en
+# `json` brut. Les placer avant les formats geo faisait telecharger un
+# fichier sans geometrie. La validation post-telechargement reste le vrai
+# garde-fou, ce classement n'est qu'une optimisation.
+FORMAT_PRIORITY: tuple[str, ...] = ("geojson", "shp", "gpkg", "zip", "json")
 
 
 class FetchError(RuntimeError):
@@ -66,48 +83,74 @@ class LayerSpec:
     Attributes:
         key: identifiant interne (sert de nom de dossier dans `data/`).
         label: libelle lisible pour les journaux et l'interface.
+        dataset_ids: slugs CKAN epingles, essayes AVANT toute recherche par
+            mots-cles. C'est la voie fiable ; le reste n'est qu'un filet.
         include_all: groupes de mots-cles ; le titre du jeu de donnees doit
             contenir au moins un mot-cle de *chaque* groupe.
         exclude: mots-cles disqualifiants (ex: "glissement de terrain").
         fallback_urls: URL directes utilisees si l'API CKAN echoue.
+        geometry_types: types de geometrie acceptes ; une couche qui n'en
+            contient aucun est rejetee (ex: un JSON d'avis de travaux).
+        required_any_columns: la couche doit exposer au moins une de ces
+            colonnes, sinon elle ne correspond pas a ce qu'on cherche.
         required: si False, un echec n'interrompt pas le pipeline.
     """
 
     key: str
     label: str
     include_all: tuple[tuple[str, ...], ...]
+    dataset_ids: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
     fallback_urls: tuple[str, ...] = ()
+    geometry_types: tuple[str, ...] = ()
+    required_any_columns: tuple[str, ...] = ()
     required: bool = True
 
+
+# Mots-cles disqualifiants communs : jeux de donnees municipaux qui parlent
+# de "zone" ou de "lot" dans leur texte sans etre des couches de zonage ou
+# de cadastre (c'est ce qui faisait retenir "avis-grands-travaux-v3r").
+_COMMON_EXCLUDE: tuple[str, ...] = (
+    "avis", "travaux", "entrave", "chantier", "fermeture", "deneigement",
+    "collecte", "horaire", "evenement", "permis emis", "statistique",
+)
 
 ZONAGE_LAYER = LayerSpec(
     key="zonage",
     label="Zonage municipal",
-    include_all=(("zonage", "zone",),),
-    exclude=("glissement", "inondation", "erosion", "stationnement", "scolaire",
-             "agricole permanente", "bruit", "vitesse"),
-    fallback_urls=(
-        # Ressource GeoJSON publiee par la Ville de Trois-Rivieres.
-        "https://www.donneesquebec.ca/recherche/dataset/81cfd131-73ec-43ad-9d6b-72f127c45f51"
-        "/resource/cc9a0110-6ce5-4b00-ace9-603dda3c2acc/download/plan_zonage.geojson",
+    dataset_ids=ZONAGE_DATASET_IDS,
+    # "zonage" seul : le mot "zone" est trop courant et matchait n'importe
+    # quel jeu de donnees mentionnant une zone dans sa description.
+    include_all=(("zonage", "plan de zonage", "grille des usages"),),
+    exclude=_COMMON_EXCLUDE + (
+        "glissement", "inondation", "erosion", "stationnement", "scolaire",
+        "agricole permanente", "bruit", "vitesse", "intervention",
     ),
+    fallback_urls=ZONAGE_FALLBACK_URLS,
+    geometry_types=("Polygon", "MultiPolygon"),
+    required_any_columns=ZONE_ID_COLUMNS + USAGE_COLUMNS,
 )
 
 LOTS_LAYER = LayerSpec(
     key="lots",
     label="Lots / matrice graphique",
-    include_all=(("matrice", "cadastre", "lot", "unite d'evaluation",
+    dataset_ids=LOTS_DATASET_IDS,
+    include_all=(("matrice graphique", "cadastre", "lot", "unite d'evaluation",
                   "unites d'evaluation", "role d'evaluation", "fonciere",
                   "foncier", "propriete"),),
-    exclude=("zonage", "glissement", "inondation"),
+    exclude=_COMMON_EXCLUDE + ("zonage", "glissement", "inondation"),
+    geometry_types=("Polygon", "MultiPolygon", "Point"),
+    required_any_columns=MATRICULE_COLUMNS + LOT_COLUMNS,
 )
 
 ADRESSES_LAYER = LayerSpec(
     key="adresses",
     label="Adresses civiques",
+    dataset_ids=ADRESSES_DATASET_IDS,
     include_all=(("adresse",),),
-    exclude=("zonage", "collecte"),
+    exclude=_COMMON_EXCLUDE + ("zonage",),
+    geometry_types=("Point", "MultiPoint"),
+    required_any_columns=CIVIC_NUMBER_COLUMNS + STREET_COLUMNS + FULL_ADDRESS_COLUMNS,
     required=False,
 )
 
@@ -200,20 +243,38 @@ class DataFetcher:
         manual = _find_vector_file(self.manual_dir / spec.key) or _find_named_vector(self.manual_dir, spec.key)
         if manual is not None:
             LOGGER.info("[%s] fichier manuel utilise : %s", spec.key, manual)
+            # On signale une anomalie mais on n'ecarte pas le fichier :
+            # l'utilisateur l'a depose deliberement, son schema peut etre
+            # legitime et inconnu de nos listes de colonnes.
+            try:
+                validate_layer(manual, spec)
+            except LayerValidationError as exc:
+                LOGGER.warning("[%s] fichier manuel suspect : %s", spec.key, exc)
             return FetchResult(spec.key, spec.label, manual, None, "manuel")
 
         target_dir = self.data_dir / spec.key
 
-        # 2. Cache local valide.
+        # 2. Cache local — valide seulement s'il contient la bonne couche.
+        # Sans ce controle, un mauvais telechargement anterieur (ex: un JSON
+        # d'avis de travaux enregistre comme "zonage") resterait servi
+        # indefiniment depuis le cache.
         if not self.force_refresh:
             cached = _find_vector_file(target_dir)
             if cached is not None:
-                LOGGER.info("[%s] cache reutilise : %s", spec.key, cached)
-                meta = self._read_manifest().get(spec.key, {})
-                return FetchResult(
-                    spec.key, spec.label, cached, meta.get("url"), "cache",
-                    dataset_title=meta.get("dataset_title"),
-                )
+                try:
+                    validate_layer(cached, spec)
+                except LayerValidationError as exc:
+                    LOGGER.warning(
+                        "[%s] cache invalide, il sera retelecharge : %s", spec.key, exc
+                    )
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                else:
+                    LOGGER.info("[%s] cache reutilise : %s", spec.key, cached)
+                    meta = self._read_manifest().get(spec.key, {})
+                    return FetchResult(
+                        spec.key, spec.label, cached, meta.get("url"), "cache",
+                        dataset_title=meta.get("dataset_title"),
+                    )
 
         # 3. Telechargement.
         try:
@@ -241,8 +302,11 @@ class DataFetcher:
         for url, dataset_title in candidates:
             try:
                 path = self._download_and_extract(url, target_dir)
+                # Garde-fou : un telechargement reussi ne prouve pas qu'on a
+                # la bonne couche. On verifie le contenu avant d'accepter.
+                validate_layer(path, spec)
             except Exception as exc:  # noqa: BLE001
-                LOGGER.debug("[%s] URL rejetee (%s) : %s", spec.key, url, exc)
+                LOGGER.warning("[%s] candidat rejete (%s) : %s", spec.key, url, exc)
                 last_error = exc
                 continue
             self._write_manifest_entry(spec.key, url, dataset_title, path)
@@ -252,8 +316,33 @@ class DataFetcher:
         raise FetchError(f"Toutes les URL candidates ont echoue pour '{spec.label}' : {last_error}")
 
     def _resolve_urls(self, spec: LayerSpec) -> list[tuple[str, str | None]]:
-        """Ordonne les URL candidates : API CKAN d'abord, replis ensuite."""
+        """Ordonne les URL candidates.
+
+        Priorite : slugs CKAN epingles > recherche par mots-cles > URL de
+        repli. Les slugs passent en premier parce qu'ils designent le jeu de
+        donnees officiel sans ambiguite ; la recherche par mots-cles n'est
+        qu'un filet pour le jour ou un slug change.
+        """
         candidates: list[tuple[str, str | None]] = []
+
+        # 1. Jeux de donnees epingles (package_show sur un slug connu).
+        for dataset_id in spec.dataset_ids:
+            try:
+                dataset = self.client.package_show(dataset_id)
+            except Exception as exc:  # noqa: BLE001 - slug retire ou API HS
+                LOGGER.debug("[%s] slug '%s' indisponible : %s", spec.key, dataset_id, exc)
+                continue
+            title = dataset.get("title") or dataset.get("name")
+            resources = _rank_resources(dataset.get("resources", []))
+            LOGGER.info(
+                "[%s] jeu epingle '%s' : %d ressource(s) geospatiale(s)",
+                spec.key, dataset_id, len(resources),
+            )
+            candidates.extend(
+                (str(res["url"]), title) for res in resources if res.get("url")
+            )
+
+        # 2. Recherche par mots-cles dans l'organisation.
         try:
             for dataset in self._match_datasets(spec):
                 title = dataset.get("title") or dataset.get("name")
@@ -281,15 +370,20 @@ class DataFetcher:
 
         scored: list[tuple[int, dict[str, Any]]] = []
         for package in self._packages:
+            # L'inclusion ne regarde QUE le titre, le slug et les tags.
+            # La description (`notes`) etait auparavant incluse : elle fait
+            # matcher n'importe quel jeu de donnees mentionnant "zone" ou
+            # "lot" en passant, ce qui faisait retenir "Avis de grands
+            # travaux" comme couche de zonage.
             haystack = _normalize(
-                " ".join(
-                    str(package.get(field_name, ""))
-                    for field_name in ("title", "name", "notes")
-                )
+                " ".join(str(package.get(field_name, "")) for field_name in ("title", "name"))
                 + " "
                 + " ".join(_tag_names(package))
             )
-            if any(_normalize(bad) in haystack for bad in spec.exclude):
+            # L'exclusion, elle, balaie aussi la description : mieux vaut
+            # ecarter un jeu douteux que l'accepter.
+            excludable = haystack + " " + _normalize(str(package.get("notes", "")))
+            if any(_normalize(bad) in excludable for bad in spec.exclude):
                 continue
             if not all(
                 any(_normalize(word) in haystack for word in group)
@@ -354,6 +448,83 @@ class DataFetcher:
         CACHE_MANIFEST.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+
+# --------------------------------------------------------------------------
+# Validation du contenu telecharge
+# --------------------------------------------------------------------------
+
+
+class LayerValidationError(FetchError):
+    """La couche telechargee ne correspond pas a ce qui etait demande."""
+
+
+def validate_layer(path: Path, spec: LayerSpec, sample_size: int = 200) -> None:
+    """Verifie qu'un fichier telecharge est bien la couche attendue.
+
+    Un telechargement HTTP 200 ne prouve rien : le portail peut servir un
+    jeu de donnees sans rapport (un JSON d'avis de travaux, une page
+    d'erreur HTML, un CSV sans geometrie). Cette fonction lit un echantillon
+    du fichier et rejette tout ce qui ne ressemble pas a la couche voulue.
+
+    Args:
+        path: fichier vectoriel a controler.
+        spec: couche attendue (types de geometrie, colonnes obligatoires).
+        sample_size: nombre d'entites lues pour le controle.
+
+    Raises:
+        LayerValidationError: si le fichier ne correspond pas.
+    """
+    import geopandas as gpd  # import tardif : garde le fetcher leger
+
+    try:
+        sample = gpd.read_file(path, rows=sample_size)
+    except Exception as exc:  # noqa: BLE001 - fichier illisible = invalide
+        raise LayerValidationError(
+            f"{path.name} n'est pas une couche vectorielle lisible ({exc})"
+        ) from exc
+
+    if sample.empty:
+        raise LayerValidationError(f"{path.name} ne contient aucune entite")
+
+    # 1. Geometrie presente et du bon type.
+    if sample.geometry.isna().all():
+        raise LayerValidationError(f"{path.name} n'a aucune geometrie exploitable")
+
+    if spec.geometry_types:
+        present = set(sample.geometry.geom_type.dropna().unique())
+        if not present & set(spec.geometry_types):
+            raise LayerValidationError(
+                f"{path.name} contient {sorted(present)} au lieu de "
+                f"{list(spec.geometry_types)} — ce n'est pas la couche '{spec.label}'"
+            )
+
+    # 2. Au moins une colonne metier attendue.
+    if spec.required_any_columns:
+        normalized = {_normalize_column(name) for name in sample.columns}
+        wanted = {_normalize_column(name) for name in spec.required_any_columns}
+        if not normalized & wanted:
+            # Tolerance : une correspondance par sous-chaine suffit, les
+            # schemas municipaux prefixent parfois leurs colonnes.
+            if not any(w in col for col in normalized for w in wanted if len(w) > 3):
+                raise LayerValidationError(
+                    f"{path.name} n'expose aucune colonne attendue pour "
+                    f"'{spec.label}' (colonnes vues : {sorted(sample.columns)[:12]})"
+                )
+
+    LOGGER.info(
+        "[%s] validation OK : %d entite(s) echantillonnee(s), geometries %s",
+        spec.key, len(sample), sorted(set(sample.geometry.geom_type.dropna().unique())),
+    )
+
+
+def _normalize_column(name: str) -> str:
+    """Normalise un nom de colonne pour comparaison (accents, casse, separateurs)."""
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", str(name))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return "".join(ch if ch.isalnum() else "_" for ch in text.lower()).strip("_")
 
 
 # --------------------------------------------------------------------------
