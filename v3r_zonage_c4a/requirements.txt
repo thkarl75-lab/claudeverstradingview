@@ -1,0 +1,17 @@
+# V3R_Zonage_C4A_Extractor — dependances
+
+# SIG / geometrie
+geopandas>=1.0
+shapely>=2.0
+pyproj>=3.6
+pyogrio>=0.8          # moteur de lecture rapide des shapefiles / GeoJSON
+
+# Donnees et export
+pandas>=2.0
+openpyxl>=3.1         # ecriture .xlsx
+requests>=2.31
+
+# Dashboard
+streamlit>=1.35
+folium>=0.16
+streamlit-folium>=0.20

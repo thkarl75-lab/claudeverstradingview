@@ -1,0 +1,17 @@
+# Couches telechargees et cache (regenerables via `python main.py`)
+data/*
+!data/.gitkeep
+!data/manuel/
+data/manuel/*
+!data/manuel/.gitkeep
+
+# Sorties (regenerables)
+exports/*
+!exports/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
