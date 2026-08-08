@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 // Pull current Pine Script source from TradingView editor → scripts/current.pine
+// Usage: node scripts/pine_pull.js [outFile]   (default: scripts/current.pine)
 import CDP from 'chrome-remote-interface';
 import { writeFileSync } from 'fs';
+import { resolve } from 'path';
+
+const outPath = process.argv[2]
+  ? resolve(process.cwd(), process.argv[2])
+  : new URL('../scripts/current.pine', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 
 const targets = await (await fetch('http://localhost:9222/json/list')).json();
 const t = targets.find(t => t.url?.includes('tradingview.com'));
@@ -16,7 +22,6 @@ const src = (await c.Runtime.evaluate({
 
 if (!src) { console.error('Could not read Pine editor'); await c.close(); process.exit(1); }
 
-const outPath = new URL('../scripts/current.pine', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 writeFileSync(outPath, src);
-console.log(`Pulled ${src.split('\n').length} lines → scripts/current.pine`);
+console.log(`Pulled ${src.split('\n').length} lines → ${outPath}`);
 await c.close();

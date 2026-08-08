@@ -46,6 +46,10 @@ node scripts/pine_push.js
 
 This injects the code into TradingView's Pine Editor, clicks compile, and reports any errors.
 
+Both `pine_push.js` and `pine_pull.js` accept an optional file path if you are working
+on a tracked script instead of the scratch file — e.g.
+`node scripts/pine_push.js pine/smart-money-concepts.pine`. See `pine/README.md`.
+
 ## Step 5: Fix Errors
 
 If errors are reported:

@@ -165,6 +165,16 @@ Global : Prudence sur les métaux. BTC le plus solide des trois.
 | `pine_get_console` | 4. Lire les logs |
 | `pine_save` | 5. Sauvegarder dans le cloud |
 
+Les scripts Pine versionnés du dépôt sont dans [`pine/`](pine/) — dont
+`smart-money-concepts.pine` (structure SMC : BOS/CHoCH, order blocks, FVG, EQH/EQL,
+zones premium/discount). Pour l'envoyer dans l'éditeur Pine et le compiler :
+
+```bash
+node scripts/pine_push.js pine/smart-money-concepts.pine
+```
+
+Sans argument, `pine_push.js` / `pine_pull.js` utilisent toujours `scripts/current.pine`.
+
 ### Replay
 
 | Outil | Étape |

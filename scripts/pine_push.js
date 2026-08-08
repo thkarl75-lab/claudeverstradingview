@@ -1,9 +1,13 @@
 #!/usr/bin/env node
-// Push scripts/current.pine → TradingView editor, then compile
+// Push a Pine file → TradingView editor, then compile
+// Usage: node scripts/pine_push.js [srcFile]   (default: scripts/current.pine)
 import CDP from 'chrome-remote-interface';
 import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
-const srcPath = new URL('../scripts/current.pine', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
+const srcPath = process.argv[2]
+  ? resolve(process.cwd(), process.argv[2])
+  : new URL('../scripts/current.pine', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const src = readFileSync(srcPath, 'utf-8');
 
 const targets = await (await fetch('http://localhost:9222/json/list')).json();
@@ -20,7 +24,7 @@ const set = (await c.Runtime.evaluate({
 })).result?.value;
 
 if (!set) { console.error('Could not inject into Pine editor'); await c.close(); process.exit(1); }
-console.log(`Pushed ${src.split('\n').length} lines → Pine editor`);
+console.log(`Pushed ${src.split('\n').length} lines from ${srcPath} → Pine editor`);
 
 // Click compile button
 const clicked = (await c.Runtime.evaluate({
