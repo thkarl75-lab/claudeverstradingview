@@ -1,0 +1,114 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║   PROPRIETES AUTORISEES EN LOCATION COURT TERME - TROIS-RIVIERES     ║
+║   Guide pour debutant - aucune connaissance en informatique requise  ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+
+CE QUE FAIT CE PROGRAMME
+────────────────────────────────────────────────────────────────────────
+Il telecharge les cartes officielles de la Ville de Trois-Rivieres,
+les croise automatiquement, et vous donne un fichier Excel avec TOUTES
+les proprietes situees en zone C-4 / C-4a (celles ou l'hebergement
+touristique est autorise).
+
+Vous n'avez rien a chercher adresse par adresse. Le programme fait tout.
+
+
+AVANT DE COMMENCER : INSTALLER PYTHON
+────────────────────────────────────────────────────────────────────────
+Python est le moteur qui fait tourner le programme. C'est gratuit.
+
+  1. Allez sur   https://www.python.org/downloads/
+  2. Cliquez sur le gros bouton jaune "Download Python"
+  3. Ouvrez le fichier telecharge
+
+  4. *** L'ETAPE LA PLUS IMPORTANTE ***
+     Tout en BAS de la fenetre d'installation, il y a une petite case
+     a cocher :
+
+         [ ] Add python.exe to PATH
+
+     COCHEZ-LA avant de cliquer sur "Install Now".
+
+     Si vous l'oubliez, rien ne fonctionnera. Pas grave : il suffit
+     de relancer l'installation de Python et de cocher la case.
+
+  5. Cliquez sur "Install Now" et attendez la fin.
+
+
+ENSUITE : TROIS DOUBLE-CLICS
+────────────────────────────────────────────────────────────────────────
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  1_INSTALLER.bat          <- a faire UNE SEULE FOIS          │
+  └──────────────────────────────────────────────────────────────┘
+     Double-cliquez dessus. Une fenetre noire s'ouvre et affiche du
+     texte pendant 2 a 5 minutes. C'est normal.
+     Ne fermez pas la fenetre. Attendez le message
+     "INSTALLATION TERMINEE".
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  2_EXTRACTION.bat         <- pour obtenir le fichier Excel   │
+  └──────────────────────────────────────────────────────────────┘
+     Double-cliquez. Le programme telecharge les cartes et travaille.
+     A la fin, le dossier "exports" s'ouvre tout seul avec votre
+     fichier Excel dedans.
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  3_TABLEAU_DE_BORD.bat    <- pour voir la carte              │
+  └──────────────────────────────────────────────────────────────┘
+     Double-cliquez. Votre navigateur Internet s'ouvre avec une carte
+     interactive, la liste des proprietes, et des filtres.
+
+     Gardez la fenetre noire ouverte pendant que vous l'utilisez.
+     Pour arreter : revenez sur la fenetre noire et appuyez sur
+     les touches  Ctrl + C
+
+
+VOTRE RESULTAT
+────────────────────────────────────────────────────────────────────────
+Dans le dossier "exports" :
+
+  toutes_les_proprietes_c4a_trois_rivieres.xlsx   <- ouvrez avec Excel
+
+Ce fichier contient, pour chaque propriete autorisee :
+  - le numero de matricule
+  - le numero de lot
+  - la zone exacte (exemple : C-104)
+  - l'adresse civique complete
+  - la position sur la carte (latitude / longitude)
+  - la superficie
+
+
+SI QUELQUE CHOSE NE MARCHE PAS
+────────────────────────────────────────────────────────────────────────
+"Python n'est pas installe"
+    -> Relisez la section "AVANT DE COMMENCER" ci-dessus.
+       Vous avez sans doute oublie de cocher "Add python.exe to PATH".
+
+La fenetre noire se ferme trop vite
+    -> Elle ne devrait pas. Si ca arrive, faites une capture d'ecran
+       (touche Impr. ecran) et demandez de l'aide.
+
+"Les donnees n'ont pas pu etre telechargees"
+    -> Verifiez votre connexion Internet et reessayez.
+       Le site de la Ville est peut-etre temporairement indisponible.
+
+Autre chose
+    -> Faites une capture d'ecran de la fenetre noire et demandez de
+       l'aide en la joignant. Le message affiche dit toujours quoi faire.
+
+
+IMPORTANT - A LIRE
+────────────────────────────────────────────────────────────────────────
+Ce programme lit le zonage cartographique officiel. Il vous indique ou
+le zonage autorise la famille d'usages C-4 / C-4a.
+
+Ce n'est PAS une autorisation. Avant tout projet, validez toujours :
+
+  - aupres du Service de l'amenagement de la Ville de Trois-Rivieres
+    (reglement en vigueur, conditions particulieres, usages derogatoires)
+    Telephone : 311  ou  819 374-2002
+
+  - aupres de la CITQ pour l'attestation de classification d'un
+    etablissement d'hebergement touristique.
