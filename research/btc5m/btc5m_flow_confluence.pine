@@ -2,8 +2,9 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 //  BTC 5m — Confluence « Continuation du flux en expansion »  (indicateur EXPÉRIMENTAL)
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-//  ⚠ AVERTISSEMENT : sur les données testées (BTCUSDT perp Binance, 5m, oct. 2025 → fév. 2026),
-//    l'edge NET de frais de ce système est NÉGATIF hors échantillon (≈ -0,9 bp/trade, Sharpe -1,2).
+//  ⚠ AVERTISSEMENT : sur les données testées (BTCUSDT perp Binance, 5m, oct. 2025 → juil. 2026),
+//    ce système PERD de l'argent hors échantillon : -7,8 % sur janv.-fév. 2026, puis -65 % sur
+//    mars-juil. 2026 (396 trades, -14 bp nets/trade, edge brut lui-même négatif).
 //    Aucune règle n'a passé le test strict p < 0,01 en train ET en validation.
 //    Cet indicateur est livré à titre de recherche / d'observation, PAS pour trader en réel.
 //

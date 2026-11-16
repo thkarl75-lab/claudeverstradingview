@@ -1,21 +1,71 @@
 # BTC/USDT 5m — Recherche de règles « from scratch » : rapport
 
-## Verdict
+## Verdict (mis à jour avec 10 mois de données)
 
-**Aucun edge exploitable net de frais n'a été trouvé.**
+**Aucun edge exploitable. Les 5 mois supplémentaires (mars–juillet 2026) invalident le seul thème retenu.**
 
-- Minage strict : 404 tests (règle × horizon), 21 significatifs à p < 0,01 sur le train (≈ 4 attendus par hasard), **0 répliqué à p < 0,01 en validation**.
-- Le meilleur thème « exploratoire » (continuation du flux en phase d'expansion) a un edge **brut** d'environ +9 bp par trade hors échantillon, soit moins que le coût aller-retour de 10 bp.
-- Test final jamais vu (janv.–fév. 2026) : **−7,8 %**, Sharpe −1,15, profit factor 0,89, p(net > 0) = 0,70.
-- Avec frais ×2 et slippage ×2 : **−30,8 %**. L'edge ne « disparaît » pas au stress test, il n'existait déjà pas en base.
+- Le système figé en décembre 2025, appliqué sans aucun réglage à mars–juillet 2026 : **−65,3 %**, 396 trades, profit factor 0,55, les 5 mois perdants. Même l'edge **brut** est négatif (−4,3 bp par trade).
+- Le thème « continuation du flux » s'éteint puis s'inverse : +27 bp (train) → +16 bp (déc.) → +8 bp (janv.–fév.) → **−7 bp** (mars–juil.). C'est la signature d'un sur-apprentissage.
+- Nouveau minage strict avec 5 mois de train : 384 tests, 7 significatifs à p < 0,01 (4 attendus par hasard), **0 répliqué** en validation.
+- Walk-forward 4 mois → 1 mois : **0 fold positif sur 6**, −44,9 % cumulé.
 
-Le code Pine et le backtest sont livrés comme outils de recherche, pas comme système à trader.
+Le code Pine et le backtest sont livrés comme outils de recherche. **Ce système ne doit pas être tradé.**
+
+## Mise à jour : extension à 10 mois
+
+Données : 2025-10-01 → 2026-07-31, 87 552 bougies, aucune manquante. Les nouveaux mois couvrent d'autres régimes que la baisse initiale (mars +2 %, avril +12 %, mai −3 %, juin −20 %, juillet +7 %), avec une volatilité 5m plus basse en avril–mai (12 et 9 bp contre 16 bp en moyenne auparavant). Script : `backtest_10m.py`, sorties dans `results_10m/`.
+
+**A. Système figé (seuils et paramètres de décembre 2025, inchangés) sur mars–juillet 2026**
+
+| Période | Trades | Winrate | PF | Rendement | Drawdown max | Sharpe | Brut / trade | Net / trade |
+|---|---|---|---|---|---|---|---|---|
+| **Mars–juillet** | **396** | **30,3 %** | **0,55** | **−65,3 %** | **−69,4 %** | **−7,8** | **−4,3 bp** | **−14,3 bp** |
+| Mars | 76 | 31,6 % | 0,78 | −8,1 % | −17,1 % | −2,2 | +3,7 bp | −6,3 bp |
+| Avril | 77 | 24,7 % | 0,44 | −23,6 % | −24,3 % | −14,9 | −10,7 bp | −20,7 bp |
+| Mai | 64 | 26,6 % | 0,33 | −25,6 % | −26,8 % | −12,4 | −11,4 bp | −21,4 bp |
+| Juin | 86 | 33,7 % | 0,55 | −19,6 % | −21,3 % | −8,6 | −6,9 bp | −16,9 bp |
+| Juillet | 93 | 33,3 % | 0,64 | −17,4 % | −25,4 % | −6,5 | +1,8 bp | −8,2 bp |
+
+Sortino −8,6, Calmar −1,3. Intervalle de confiance à 95 % du net par trade : [−20,8 ; −7,8] bp. Longs (183 trades, −11,1 bp) et shorts (213 trades, −17,1 bp) perdent tous les deux. Acheter et conserver : −6,2 %. Contrôle vectorbt : capital final identique (3 467,65 USDT).
+
+La perte en capital est amplifiée par la taille : en basse volatilité le stop est plus serré, donc la position atteint le plafond de levier de 3×.
+
+Stress tests sur la même période : frais ×2 → −81,1 % ; slippage ×2 → −71,1 % ; **frais ×2 et slippage ×2 → −84,2 %** ; funding → −65,8 % ; entrée au pire prix → −94,4 % ; long seul → −36,5 % ; sans aucun coût → −28,8 %. La variante « long seul », légèrement positive sur janv.–fév., perd elle aussi : c'était bien du bruit.
+
+**B. Le thème « flux » au niveau des règles** (rendement dans le sens du flux, `|imb_48|` ≥ 0,139 et `vol_ratio > 1`)
+
+| Période | 12 bougies | 24 bougies |
+|---|---|---|
+| Train oct.–nov. | +15,6 bp (p = 0,016) | +27,3 bp (p = 0,017) |
+| Validation déc. | +9,2 bp (p = 0,16) | +15,7 bp (p = 0,15) |
+| Janv.–fév. | +1,5 bp (p = 0,84) | +7,7 bp (p = 0,54) |
+| Mars–juil. | −4,4 bp (p = 0,12) | −7,1 bp (p = 0,11) |
+
+L'inversion de mars–juillet n'est pas significative non plus : elle ne justifie pas de trader la règle à l'envers.
+
+**C. Nouveau minage strict** (train oct.–fév., validation mars–avril, test mai–juillet réservé) : 384 tests, 7 significatifs en train, dont 43 % seulement gardent leur signe en validation, 0 répliqué. Avec deux fois et demie plus de données d'entraînement, le nombre de « découvertes » en train se rapproche du niveau du hasard. Le test mai–juillet n'a pas eu à servir.
+
+**D. Walk-forward 4 mois → 1 mois** (paramètres ré-optimisés à chaque fold)
+
+| Fold | Test | Trades | Winrate | PF | Rendement | Net / trade |
+|---|---|---|---|---|---|---|
+| 1 | 2026-02 | 65 | 43,1 % | 0,98 | −0,3 % | −0,5 bp |
+| 2 | 2026-03 | 67 | 37,3 % | 0,88 | −2,1 % | −4,0 bp |
+| 3 | 2026-04 | 78 | 26,9 % | 0,42 | −14,3 % | −23,0 bp |
+| 4 | 2026-05 | 60 | 26,7 % | 0,26 | −16,7 % | −27,7 bp |
+| 5 | 2026-06 | 101 | 37,6 % | 0,54 | −12,9 % | −21,1 bp |
+| 6 | 2026-07 | 85 | 41,2 % | 0,68 | −9,3 % | −7,0 bp |
+| Cumul | | 456 | 35,7 % | | −44,9 % | −14,2 bp |
+
+Le Sharpe du meilleur jeu de paramètres en train est négatif sur les 6 folds : en conditions réelles, un tel système n'aurait jamais été mis en production.
+
+**Conclusion** : sur 10 mois et plusieurs régimes, des features dérivées de l'OHLCV 5m ne donnent aucune règle directionnelle qui survive à 10 bp de coûts. Les sections ci-dessous décrivent l'étude initiale sur 5 mois et restent valables comme description de la méthode ; leurs chiffres de performance sont remplacés par ceux ci-dessus.
 
 ## Écarts par rapport à la demande
 
 | Demande | Réalité | Conséquence |
 |---|---|---|
-| ~13 mois, ~112 000 bougies | **5 mois** (2025-10-01 → 2026-02-28), 43 488 bougies, aucune manquante | Découpage adapté (ci-dessous) ; puissance statistique plus faible |
+| ~13 mois, ~112 000 bougies | 5 mois au départ, puis **10 mois** (2025-10 → 2026-07, 87 552 bougies) | Étude initiale sur 5 mois ; extension sur 10 mois ci-dessus |
 | Spot | Les fichiers sont au format klines **Binance USDT-M Futures** (perpétuel) | Longs et shorts testés ; funding testé en scénario ; variante « long seul » fournie |
 | 3 derniers mois en test final | 2 derniers mois (sinon il ne restait que 2 mois pour tout le reste) | Test final = janv.–fév. 2026 |
 | Walk-forward 4 mois / 1 mois | 3 folds de 2 mois train → 1 mois test | Le fold 1 teste décembre, qui a aussi servi de validation à la conception |
@@ -182,8 +232,10 @@ La variante « long seul » est positive sur 50 trades dans un marché à −24 
 | `features.py` | Chargement des CSV et feature engineering |
 | `mine_rules.py` | Génération de règles, bootstrap par jour, importance par forêt aléatoire |
 | `system.py` | Score de confluence, signaux, moteur de backtest, métriques |
-| `backtest_wf.py` | Pipeline complet : minage, test final, walk-forward, stress tests, contrôle vectorbt |
+| `backtest_wf.py` | Pipeline initial (5 mois) : minage, test final, walk-forward, stress tests, contrôle vectorbt |
+| `backtest_10m.py` | Extension 10 mois : système figé sur mars–juil., réplication du thème, nouveau minage, walk-forward 4 mois / 1 mois |
 | `btc5m_flow_confluence.pine` | Indicateur Pine Script v6 |
+| `results_10m/` | Résultats de l'extension (`results_10m.json`, trades, equity, walk-forward, 384 tests) |
 | `results/` | `rules_all.csv` (les 404 tests), `walk_forward.csv`, `trades_test_final.csv`, `equity_test_final.csv`, `results.json` |
 
 Relancer : `python backtest_wf.py <dossier_des_csv> results` (dépendances : pandas, numpy, scipy, scikit-learn, vectorbt).
