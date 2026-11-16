@@ -61,6 +61,44 @@ Le Sharpe du meilleur jeu de paramètres en train est négatif sur les 6 folds :
 
 **Conclusion** : sur 10 mois et plusieurs régimes, des features dérivées de l'OHLCV 5m ne donnent aucune règle directionnelle qui survive à 10 bp de coûts. Les sections ci-dessous décrivent l'étude initiale sur 5 mois et restent valables comme description de la méthode ; leurs chiffres de performance sont remplacés par ceux ci-dessus.
 
+## Test multi-timeframe avec indicateurs classiques comme filtres
+
+**Aucun edge : les 20 combinaisons sont perdantes, et l'edge brut est déjà nul avant frais.** Direction à abandonner.
+
+Script : `backtest_mtf.py`, sorties dans `results_mtf/`. Filtre 1H : close au-dessus de l'EMA 200 et RSI 14 > 50 (long), l'inverse pour short. Filtre 15m : close au-dessus ou en dessous de l'EMA 50. Bougies 1H et 15m reconstruites depuis les 5m ; une valeur de timeframe supérieur n'est utilisée qu'une fois sa bougie clôturée. 5 déclencheurs 5m (événements de prix) × 4 configurations de filtres, fixés à l'avance, sans optimisation. Sorties identiques au système précédent (stop 4 ×, objectif 12 × la volatilité maison, 24 bougies). Période : 2025-10-15 → 2026-07-31. Seuil de Bonferroni : p < 0,0025.
+
+| Déclencheur | Filtres | Trades | Brut / trade | Net / trade | PF | Sharpe | Net / trade (frais et slippage ×2) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| T1 cassure de la bougie précédente | aucun | 3 619 | −1,9 bp | −11,9 bp | 0,54 | −14,5 | −22,1 bp | pas d'edge |
+| | 1H | 2 643 | −2,4 bp | −12,4 bp | 0,57 | −13,2 | −22,4 bp | pas d'edge |
+| | 15m | 3 592 | −0,7 bp | −10,7 bp | 0,59 | −13,6 | −19,5 bp | pas d'edge |
+| | 1H + 15m | 2 274 | −2,2 bp | −12,2 bp | 0,59 | −12,4 | −21,2 bp | pas d'edge |
+| T2 rejet (mèche > 50 % du range) | aucun | 2 906 | +0,2 bp | −9,8 bp | 0,65 | −10,8 | −19,5 bp | pas d'edge |
+| | 1H | 1 493 | −0,3 bp | −10,3 bp | 0,64 | −8,0 | −20,1 bp | pas d'edge |
+| | 15m | 1 928 | +0,6 bp | −9,4 bp | 0,64 | −8,8 | −19,3 bp | pas d'edge |
+| | 1H + 15m | 1 171 | +0,7 bp | −9,3 bp | 0,67 | −6,6 | −19,4 bp | pas d'edge |
+| T3 expansion de range + volume > moyenne 20 | aucun | 3 187 | −3,4 bp | −13,4 bp | 0,57 | −14,6 | −23,0 bp | pas d'edge |
+| | 1H | 1 730 | −1,8 bp | −11,8 bp | 0,60 | −9,4 | −21,8 bp | pas d'edge |
+| | 15m | 2 532 | −2,1 bp | −12,1 bp | 0,60 | −11,2 | −21,3 bp | pas d'edge |
+| | 1H + 15m | 1 454 | −1,3 bp | −11,3 bp | 0,62 | −8,2 | −21,6 bp | pas d'edge |
+| T4 cassure après repli de 3 bougies | aucun | 3 443 | −2,0 bp | −12,0 bp | 0,62 | −14,8 | −21,0 bp | pas d'edge |
+| | 1H | 2 214 | −2,0 bp | −12,0 bp | 0,58 | −11,4 | −21,5 bp | pas d'edge |
+| | 15m | 2 798 | −0,9 bp | −10,9 bp | 0,58 | −13,2 | −20,8 bp | pas d'edge |
+| | 1H + 15m | 1 743 | −1,1 bp | −11,1 bp | 0,61 | −10,0 | −21,1 bp | pas d'edge |
+| T5 cassure du range des 12 bougies | aucun | 3 242 | −2,1 bp | −12,1 bp | 0,62 | −13,4 | −22,1 bp | pas d'edge |
+| | 1H | 1 524 | −1,8 bp | −11,8 bp | 0,61 | −10,2 | −21,6 bp | pas d'edge |
+| | 15m | 2 585 | −1,9 bp | −11,9 bp | 0,62 | −12,7 | −22,0 bp | pas d'edge |
+| | 1H + 15m | 1 451 | −1,5 bp | −11,5 bp | 0,61 | −9,7 | −21,3 bp | pas d'edge |
+
+Le drawdown maximal dépasse 87 % pour les 20 combinaisons (le compte est pratiquement vidé) ; p(net > 0) = 1,00 partout.
+
+- **Les filtres réduisent le nombre de trades, pas la perte par trade.** Ils font passer le net par trade de −12 à −11 bp au mieux : ils limitent les dégâts en tradant moins.
+- **Les filtres n'ont pas de contenu directionnel.** Le rendement dans le sens du filtre 1H, mesuré seul, vaut −0,7 bp à 1 h, −1,2 bp à 2 h, −2,4 bp à 4 h et −2,2 bp à 12 h (p entre 0,4 et 0,8). Le résultat ne dépend donc pas du choix des sorties.
+- **Walk-forward 4 mois → 1 mois** (meilleure combinaison du train tradée le mois suivant) : « T2 + 1H + 15m » est choisie aux 6 folds avec un Sharpe d'entraînement toujours négatif ; 0 fold positif, −75,3 % cumulé, −11,6 bp nets par trade sur 719 trades.
+- **Comparaison** : sur mars–juillet 2026, le système « from scratch » perdait 65,3 % ; ici la meilleure combinaison perd 71,2 % et la pire 98,8 %. Les systèmes multi-timeframe tradent 3 à 9 fois plus souvent et paient donc plus de frais.
+
+Aucun code Pine n'est fourni pour cette direction, faute d'edge à coder.
+
 ## Écarts par rapport à la demande
 
 | Demande | Réalité | Conséquence |
@@ -235,6 +273,8 @@ La variante « long seul » est positive sur 50 trades dans un marché à −24 
 | `backtest_wf.py` | Pipeline initial (5 mois) : minage, test final, walk-forward, stress tests, contrôle vectorbt |
 | `backtest_10m.py` | Extension 10 mois : système figé sur mars–juil., réplication du thème, nouveau minage, walk-forward 4 mois / 1 mois |
 | `btc5m_flow_confluence.pine` | Indicateur Pine Script v6 |
+| `backtest_mtf.py` | Test multi-timeframe : filtres EMA/RSI en 1H et 15m, déclencheurs de prix en 5m, 20 combinaisons |
+| `results_mtf/` | `combos.csv`, `walk_forward.csv`, `results_mtf.json` |
 | `results_10m/` | Résultats de l'extension (`results_10m.json`, trades, equity, walk-forward, 384 tests) |
 | `results/` | `rules_all.csv` (les 404 tests), `walk_forward.csv`, `trades_test_final.csv`, `equity_test_final.csv`, `results.json` |
 
