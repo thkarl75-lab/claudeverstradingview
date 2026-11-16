@@ -1,0 +1,208 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//  BTC 5m — Confluence « Continuation du flux en expansion »  (indicateur EXPÉRIMENTAL)
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//  ⚠ AVERTISSEMENT : sur les données testées (BTCUSDT perp Binance, 5m, oct. 2025 → fév. 2026),
+//    l'edge NET de frais de ce système est NÉGATIF hors échantillon (≈ -0,9 bp/trade, Sharpe -1,2).
+//    Aucune règle n'a passé le test strict p < 0,01 en train ET en validation.
+//    Cet indicateur est livré à titre de recherche / d'observation, PAS pour trader en réel.
+//
+//  • Aucun indicateur natif TradingView : zéro appel ta.* — tout est recalculé à partir de
+//    l'OHLCV brut avec des boucles, des sommes et des médianes écrites à la main.
+//  • Pas de repaint : les signaux ne sont émis que sur bougie clôturée (barstate.isconfirmed),
+//    et l'entrée simulée se fait à l'OPEN de la bougie suivante.
+//  • Les seuils par défaut ont été calibrés sur BINANCE:BTCUSDT.P en 5 minutes (oct.–déc. 2025).
+//    Sur un autre symbole / timeframe, ils n'ont aucune validité.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+indicator("BTC 5m — Confluence flux/expansion [expérimental]", shorttitle="FluxConf", overlay=true, max_labels_count=500)
+
+// ─────────────────────────────── Paramètres ───────────────────────────────
+grpS = "Seuils calibrés (train oct.–déc. 2025)"
+thr80   = input.float(0.1384, "Seuil pression |imbalance 4h| (quantile 80 %)", step=0.001, group=grpS)
+thr90   = input.float(0.1759, "Seuil pression forte (quantile 90 %)",          step=0.001, group=grpS)
+volP5   = input.float(66.5,   "Volume minimum de la bougie (percentile 5 %, en BTC)", step=0.5, group=grpS)
+minPts  = input.int(80, "Points minimum pour un signal (0-100)", minval=50, maxval=100, group=grpS)
+
+grpR = "Gestion du risque (multiples de la volatilité maison)"
+slK     = input.float(4.0,  "Stop = k × range médian 4h",     step=0.5, group=grpR)
+tpK     = input.float(12.0, "Objectif = k × range médian 4h", step=0.5, group=grpR)
+holdBars = input.int(24, "Sortie temporelle (bougies)", minval=1, group=grpR)
+longOnly = input.bool(false, "Longs uniquement (compatible spot)", group=grpR)
+
+grpV = "Affichage"
+showTable = input.bool(true, "Afficher le tableau de bord", group=grpV)
+showLvls  = input.bool(true, "Afficher stop / objectif de la position simulée", group=grpV)
+
+// Fenêtres (en bougies 5m) : 1h, 4h, 24h
+int W_FAST = 12
+int W_MID  = 48
+int W_DAY  = 288
+
+// ─────────────────────── Fonctions glissantes « from scratch » ───────────────────────
+// Somme glissante par simple boucle (aucun ta.sum / math.sum)
+f_sum(float src, int n) =>
+    float s = 0.0
+    for i = 0 to n - 1
+        s += nz(src[i])
+    s
+
+// Moyenne glissante simple
+f_mean(float src, int n) =>
+    f_sum(src, n) / n
+
+// Médiane glissante : on copie la fenêtre dans un tableau, on trie, on prend le milieu
+f_median(float src, int n) =>
+    arr = array.new_float(0)
+    for i = 0 to n - 1
+        if not na(src[i])
+            array.push(arr, src[i])
+    float med = na
+    int m = array.size(arr)
+    if m > 0
+        array.sort(arr, order.ascending)
+        int half = m / 2
+        med := m % 2 == 1 ? array.get(arr, half) : (array.get(arr, half - 1) + array.get(arr, half)) / 2.0
+    med
+
+// ─────────────────────────────── Features ───────────────────────────────
+float rng      = high - low
+// Position du close dans le range de la bougie (0 = au plus bas, 1 = au plus haut)
+float closePos = rng > 0 ? (close - low) / rng : 0.5
+// Delta de volume signé (proxy OHLC du flux acheteur - vendeur)
+float signedVol = volume * (2.0 * closePos - 1.0)
+// Imbalance 4h : somme du volume signé / somme du volume  ∈ [-1, 1]
+float sumVol48 = f_sum(volume, W_MID)
+float imb48    = sumVol48 > 0 ? f_sum(signedVol, W_MID) / sumVol48 : 0.0
+
+// Volatilité « maison » : médiane 4h du range relatif (ce n'est PAS un ATR)
+float relRange = rng / close
+float volUnit  = f_median(relRange, W_MID)
+// Expansion : range moyen 1h / range moyen 24h
+float meanRngDay = f_mean(relRange, W_DAY)
+float volRatio   = meanRngDay > 0 ? f_mean(relRange, W_FAST) / meanRngDay : 0.0
+// Volume relatif : moyenne 30 min / médiane 24h
+float medVolDay = f_median(volume, W_DAY)
+float relVol6   = medVolDay > 0 ? f_mean(volume, 6) / medVolDay : 0.0
+// Efficacité 4h : |déplacement net| / chemin parcouru (0 = bruit, 1 = tendance pure)
+float absRet  = math.abs(math.log(close / close[1]))
+float path48  = f_sum(absRet, W_MID)
+float eff48   = path48 > 0 ? math.abs(math.log(close / close[W_MID])) / path48 : 0.0
+// Sens des 3 dernières bougies (sert à détecter un repli contre le flux)
+float mom3Sign = math.sign(close - close[3])
+
+// ─────────────────────────── Score de confluence ───────────────────────────
+float dir      = math.sign(imb48)                 // sens du flux 4h
+float absImb   = math.abs(imb48)
+bool press     = absImb >= thr80                  // porte n°1 : pression soutenue
+bool expan     = volRatio >= 1.0                  // porte n°2 : régime d'expansion
+bool liquid    = volume >= volP5                  // filtre de liquidité
+bool warm      = bar_index > W_DAY + 5            // historique suffisant
+
+int pts = (press ? 30 : 0) + (absImb >= thr90 ? 10 : 0) + (expan ? 20 : 0) + (volRatio >= 1.2 ? 10 : 0) + (relVol6 >= 1.5 ? 10 : 0) + (eff48 >= 0.15 ? 10 : 0) + (dir != 0 and mom3Sign != dir ? 10 : 0)
+
+// Score 0-100 : 50 = neutre, > 50 haussier, < 50 baissier
+float score = math.max(0.0, math.min(100.0, 50.0 + dir * pts / 2.0))
+
+// Signal brut, figé à la clôture de la bougie (pas de repaint)
+bool sigOk   = barstate.isconfirmed and warm and press and expan and liquid and pts >= minPts and not na(volUnit)
+int  rawSig  = sigOk ? int(dir) : 0
+if longOnly and rawSig < 0
+    rawSig := 0
+
+// ─────────────── Machine à états : une position simulée à la fois ───────────────
+// Reproduit la logique du backtest Python : entrée à l'open de t+1, stop prioritaire
+// si stop et objectif sont touchés dans la même bougie, sortie temporelle à l'open.
+var int   pos         = 0      // 1 long, -1 short, 0 à plat
+var float entryPx     = na
+var float slPx        = na
+var float tpPx        = na
+var int   entryBar    = na
+var bool  exitAtOpen  = false
+var int   pendingDir  = 0      // signal en attente d'exécution à la prochaine ouverture
+var float pendingVu   = na
+
+bool newEntry = false
+int  exitType = 0              // 1 = stop, 2 = objectif, 3 = temps
+
+// 1) sortie temporelle à l'open
+if pos != 0 and exitAtOpen
+    pos := 0
+    exitAtOpen := false
+    exitType := 3
+// 2) exécution du signal de la bougie précédente, à l'open de cette bougie
+else if pos == 0 and pendingDir != 0
+    pos      := pendingDir
+    entryPx  := open
+    slPx     := open * (1 - pos * slK * pendingVu)
+    tpPx     := open * (1 + pos * tpK * pendingVu)
+    entryBar := bar_index
+    newEntry := true
+pendingDir := 0
+
+// 3) stop / objectif intrabar (hypothèse pessimiste : le stop passe avant l'objectif)
+if pos > 0
+    if low <= slPx
+        pos := 0
+        exitType := 1
+    else if high >= tpPx
+        pos := 0
+        exitType := 2
+else if pos < 0
+    if high >= slPx
+        pos := 0
+        exitType := 1
+    else if low <= tpPx
+        pos := 0
+        exitType := 2
+if pos != 0 and bar_index - entryBar + 1 >= holdBars
+    exitAtOpen := true
+
+// 4) nouveau signal accepté seulement si l'on est à plat à la clôture
+bool buySignal  = rawSig > 0 and pos == 0
+bool sellSignal = rawSig < 0 and pos == 0
+if buySignal or sellSignal
+    pendingDir := rawSig
+    pendingVu  := volUnit
+
+// ─────────────────────────────── Affichage ───────────────────────────────
+color cBuy  = color.new(#1b9e77, 0)
+color cSell = color.new(#d95f02, 0)
+
+if buySignal
+    label.new(bar_index, low, "BUY\n" + str.tostring(score, "#"), style=label.style_label_up, color=cBuy, textcolor=color.white, size=size.small, yloc=yloc.belowbar)
+if sellSignal
+    label.new(bar_index, high, "SELL\n" + str.tostring(score, "#"), style=label.style_label_down, color=cSell, textcolor=color.white, size=size.small, yloc=yloc.abovebar)
+
+plotshape(exitType == 1, "Sortie stop",     shape.xcross, location.abovebar, color.red,   size=size.tiny)
+plotshape(exitType == 2, "Sortie objectif", shape.diamond, location.abovebar, color.green, size=size.tiny)
+plotshape(exitType == 3, "Sortie temps",    shape.circle, location.abovebar, color.gray,  size=size.tiny)
+
+plot(showLvls and pos != 0 ? slPx : na,    "Stop",     color=color.red,   style=plot.style_linebr)
+plot(showLvls and pos != 0 ? tpPx : na,    "Objectif", color=color.green, style=plot.style_linebr)
+plot(showLvls and pos != 0 ? entryPx : na, "Entrée",   color=color.gray,  style=plot.style_linebr)
+
+// Fond : régime tradable (expansion + pression) vs neutre
+bgcolor(press and expan and warm ? color.new(dir > 0 ? cBuy : cSell, 90) : na, title="Régime actif")
+
+// Tableau de bord
+var table tb = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 70), border_width=1)
+f_row(int r, string k, string v, color c) =>
+    table.cell(tb, 0, r, k, text_color=color.white, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, r, v, text_color=c, text_size=size.small, text_halign=text.align_right)
+
+if showTable and barstate.islast
+    string state = score >= 50 + minPts / 2.0 and press and expan ? "BUY" : score <= 50 - minPts / 2.0 and press and expan ? "SELL" : "NEUTRAL"
+    color  cs    = state == "BUY" ? cBuy : state == "SELL" ? cSell : color.silver
+    f_row(0, "Score confluence", str.tostring(score, "#") + " / 100", cs)
+    f_row(1, "État", state, cs)
+    f_row(2, "Imbalance 4h", str.tostring(imb48, "#.###"), press ? cs : color.silver)
+    f_row(3, "Expansion (1h/24h)", str.tostring(volRatio, "#.##"), expan ? color.white : color.silver)
+    f_row(4, "Volume relatif 30m", str.tostring(relVol6, "#.##"), relVol6 >= 1.5 ? color.white : color.silver)
+    f_row(5, "Efficacité 4h", str.tostring(eff48, "#.##"), eff48 >= 0.15 ? color.white : color.silver)
+    f_row(6, "Vol. maison (bp)", str.tostring(volUnit * 10000, "#.#"), color.white)
+    f_row(7, "Liquidité", liquid ? "OK" : "FAIBLE", liquid ? color.white : color.red)
+    f_row(8, "Edge net OOS", "NÉGATIF ⚠", color.red)
+
+// Alertes (déclenchées sur bougie clôturée uniquement)
+alertcondition(buySignal,  "Signal BUY",  "FluxConf : signal BUY (bougie clôturée) — exécution à l'open suivant")
+alertcondition(sellSignal, "Signal SELL", "FluxConf : signal SELL (bougie clôturée) — exécution à l'open suivant")
